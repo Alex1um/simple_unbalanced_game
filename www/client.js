@@ -53,17 +53,32 @@ function renderState(id, ships, bullets, map) {
   
     // Render ships and bullets
     ships.forEach((value, key, map) => {
-      console.log(key, id)
       const centerX = value.x * cellSize + cellSize / 2;
       const centerY = value.y * cellSize + cellSize / 2;
 
       if (key == id) {
         ctx.fillStyle = "green";
+        ctx.strokeStyle = "green";
       } else {
         ctx.fillStyle = "blue";
+        ctx.strokeStyle = "blue";
       }
 
-      ctx.fillRect(centerX - cellSize / 4, centerY - cellSize / 4, cellSize / 2, cellSize / 2);
+      // ctx.fillRect(centerX - cellSize / 4, centerY - cellSize / 4, cellSize / 2, cellSize / 2);
+      ctx.translate(centerX, centerY);
+      ctx.rotate(value.current_angle - Math.PI / 2);
+      
+      ctx.beginPath()
+      
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-cellSize / 2, -cellSize / 2);
+      ctx.lineTo(0, cellSize / 2);
+      ctx.lineTo(cellSize / 2, -cellSize / 2);
+
+      ctx.fill();
+      ctx.rotate(-value.current_angle + Math.PI / 2);
+      ctx.translate(-centerX, -centerY);
+
     });
     bullets.forEach((element, key, map) => {
       const centerX = element["x"] * cellSize + cellSize / 2;

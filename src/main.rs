@@ -69,7 +69,7 @@ impl Bullet {
             x: ((ship.x + 1.0 * angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32,
             y: ((ship.y + 1.0 * angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32,
             angle,
-            v: ship.bullet_speed,
+            v: ship.bullet_speed + ship.v,
             ttl: ship.bullet_ttl,
             hp: ship.bullet_hp,
         }
@@ -85,12 +85,12 @@ impl Ship {
             current_angle: angle,
             shape: 0,
             turn_rate: 0.5,
-            v: 0.2,
+            v: 0.08,
             repair_rate: 0.01,
             max_hp: 100.0,
             hp: 100.0,
             bullet_ttl: 1.0,
-            bullet_speed: 0.2,
+            bullet_speed: 0.02,
             bullet_hp: 10.0,
         }
     }
@@ -121,11 +121,11 @@ impl Enchance {
         let mut rng = thread_rng();
         Enchance {
             turn_rate: ship.turn_rate * rng.gen::<f32>(),
-            v: ship.v * rng.gen::<f32>(),
+            v: ship.v * rng.gen::<f32>() * 0.2,
             repair_rate: ship.repair_rate * rng.gen::<f32>(),
             max_hp: ship.max_hp * rng.gen::<f32>(),
-            bullet_ttl: ship.bullet_ttl * rng.gen::<f32>() * 0.5,
-            bullet_speed: ship.bullet_speed * rng.gen::<f32>() * 0.5,
+            bullet_ttl: ship.bullet_ttl * rng.gen::<f32>() * 0.3,
+            bullet_speed: ship.bullet_speed * rng.gen::<f32>() * 0.3,
             bullet_hp: ship.bullet_hp * rng.gen::<f32>(),
         }
     }
@@ -158,7 +158,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
     let mut bullets = HashMap::<usize, Bullet, RandomState>::default();
     let mut damage_feed = DamageFeed::new();
     // > 0 - ship id; < 0 - bullet
-    let tick_rate = 0.1;
+    let tick_rate = 0.01666666;
     let tick_rate_dur = tokio::time::Duration::from_secs_f32(tick_rate);
     let mut bullet_id = 0usize;
     'main: loop {
@@ -220,16 +220,6 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             }
             true
         });
-        for DamageFeedRecord(damager, damaged, remain_hp) in damage_feed.iter() {
-            if *remain_hp <= 0.0 {
-                if let Some(damaged) = ships.get(damaged) {
-                    let enchance = Enchance::new(damaged);
-                    if let Some(damager) = ships.get_mut(damager) {
-                        damager.apply_enchance(enchance);
-                    }
-                }
-            }
-        }
         loop {
             match action_receiver.try_recv() {
                 Err(e) => match e {
@@ -261,11 +251,23 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                                 });
                         }
                         Action::AddBullet { angle } => {
-                            if let Some(ship) = ships.get(&{ id }) {
+                            if let Some(ship) = ships.get_mut(&{ id }) {
+                                ship.hp -= 1.0;
+                                damage_feed.push(DamageFeedRecord(id, id, ship.hp));
                                 bullets.insert(bullet_id, Bullet::new(id, ship, angle));
                                 bullet_id += 1;
                             }
                         }
+                    }
+                }
+            }
+        }
+        for DamageFeedRecord(damager, damaged, remain_hp) in damage_feed.iter() {
+            if *remain_hp <= 0.0 {
+                if let Some(damaged) = ships.get(damaged) {
+                    let enchance = Enchance::new(damaged);
+                    if let Some(damager) = ships.get_mut(damager) {
+                        damager.apply_enchance(enchance);
                     }
                 }
             }
