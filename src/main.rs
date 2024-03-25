@@ -13,6 +13,7 @@ use tokio_tungstenite::{
 };
 use std::collections::HashMap;
 use rand::{thread_rng, Rng};
+use ahash::RandomState;
 
 const PI: f32 = 3.14159265358979323846;
 const MAP_SIZE: usize = 20;
@@ -136,18 +137,28 @@ impl Enchance {
     }
 }
 
+
+#[derive(Serialize, Clone)]
+struct DamageFeedRecord (
+    /* damager_id:*/ usize,
+    /* damaged_id:*/ usize,
+    /* remain_hp: */f32,
+);
+
+type DamageFeed = Vec<DamageFeedRecord>;
+
 type Map<T, const N: usize> = [[T; N]; N];
 
 type CurrentMap = Map<i32, MAP_SIZE>;
 
 
 #[derive(Serialize, Clone)]
-struct State(usize, HashMap<usize, Ship>, HashMap<usize, Bullet>, CurrentMap, Vec<(usize, usize)>);
+struct State(usize, HashMap<usize, Ship, RandomState>, HashMap<usize, Bullet, RandomState>, CurrentMap, DamageFeed);
 
 async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch::Sender<State>) {
-    let mut ships = HashMap::<usize, Ship>::new();
-    let mut bullets = HashMap::<usize, Bullet>::new();
-    let mut damage_feed = Vec::<(usize, usize, f32)>::new();
+    let mut ships = HashMap::<usize, Ship, RandomState>::default();
+    let mut bullets = HashMap::<usize, Bullet, RandomState>::default();
+    let mut damage_feed = DamageFeed::new();
     // > 0 - ship id; < 0 - bullet
     let tick_rate = 0.1;
     let tick_rate_dur = tokio::time::Duration::from_secs_f32(tick_rate);
@@ -202,16 +213,17 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                     let bullet_hp = bullet.hp;
                     bullet.hp -= s.hp;
                     s.hp -= bullet_hp;
-                    damage_feed.push((bullet.ship_id, *ship_id, s.hp));
+                    damage_feed.push(DamageFeedRecord(bullet.ship_id, *ship_id, s.hp));
                 }
             }
             true
         });
-        for (damager, damaged, remain_hp) in damage_feed.iter() {
+        for DamageFeedRecord (damager, damaged, remain_hp) in damage_feed.iter() {
             if *remain_hp <= 0.0 {
-                if let Some(damager) = ships.get_mut(&damager) {
-                    if let Some(damaged) = ships.get_mut(&damaged) {
-                        damager.apply_enchance(Enchance::new(damaged));
+                if let Some(damaged) = ships.get(&damaged) {
+                    let enchance = Enchance::new(damaged);
+                    if let Some(damager) = ships.get_mut(&damager) {
+                        damager.apply_enchance(enchance);
                     }
                 }
             }
