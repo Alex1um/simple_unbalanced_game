@@ -152,7 +152,7 @@ type Map<T, const N: usize> = [[T; N]; N];
 type CurrentMap = Map<i32, MAP_SIZE>;
 
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 struct State(usize, HashMap<usize, Ship, RandomState>, HashMap<usize, Bullet, RandomState>, CurrentMap, DamageFeed);
 
 async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch::Sender<State>) {
@@ -321,7 +321,7 @@ async fn accept_connection(stream: TcpStream, peer_id: usize, action_sender: mps
 #[tokio::main]
 async fn main() {
     let (action_sender, action_receiver) = mpsc::channel::<ShipAction>(32);
-    let (map_sender, map_receiver) = watch::channel::<State>(State(0, HashMap::new(), HashMap::new(), CurrentMap::default(), vec![]));
+    let (map_sender, map_receiver) = watch::channel::<State>(State::default());
     // let (map_sender, mut map_receiver) = watch::channel::<State>(State(vec![], vec![], [[0i8; 20]; 20]));
     let ws_addr = SocketAddr::from(([0, 0, 0, 0], 48666));
     let listener = TcpListener::bind(ws_addr).await.expect("Failed to bind");
