@@ -7,20 +7,16 @@ const MAP_SIZE_F32: f32 = MAP_SIZE as f32;
 const TICK_RATE: f32 = 1.0 / 60.0;
 
 mod state {
-    use serde::Serialize;
     use super::game::{Bullet, CurrentMap, Ship};
-    use std::collections::HashMap;
     use ahash::RandomState;
+    use serde::Serialize;
+    use std::collections::HashMap;
 
     #[derive(Serialize, Clone)]
-    pub struct DamageFeedRecord(
-        pub /* damager_id:*/ usize,
-        pub /* damaged_id:*/ usize,
-        pub /* remain_hp: */ f32,
-    );
+    pub struct DamageFeedRecord(pub usize, pub usize, pub f32);
 
     pub type DamageFeed = Vec<DamageFeedRecord>;
-    
+
     #[derive(Serialize, Clone, Default)]
     pub struct State(
         pub usize,
@@ -32,15 +28,15 @@ mod state {
 }
 
 mod game {
-    use serde::{Deserialize, Serialize};
-    use super::{MAP_SIZE, MAP_SIZE_F32, TICK_RATE};
     use super::state::{DamageFeed, DamageFeedRecord, State};
-    use rand::{thread_rng, Rng};
-    use tokio::sync::{mpsc, watch};
-    use std::collections::HashMap;
+    use super::{MAP_SIZE, MAP_SIZE_F32, TICK_RATE};
     use ahash::RandomState;
-    use tokio::sync::mpsc::error::TryRecvError;
+    use rand::{thread_rng, Rng};
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     use std::f32::consts::PI;
+    use tokio::sync::mpsc::error::TryRecvError;
+    use tokio::sync::{mpsc, watch};
 
     #[derive(Clone, Serialize)]
     pub struct Bullet {
@@ -212,7 +208,7 @@ mod game {
                     c if c > 0 => {
                         // Collision
                     }
-                    c if c == 0 => {
+                    0 => {
                         // Nothing
                         new_map[rny][rnx] = *ship_id as i32;
                         s.x = nx;
@@ -299,14 +295,14 @@ mod game {
 
 mod wserver {
 
+    use super::game::{Action, ShipAction};
     use super::state::State;
-    use super::game::{ShipAction, Action};
-    use tokio::net::TcpStream;
-    use tokio_tungstenite::tungstenite::protocol::Message;
-    use tokio_tungstenite::WebSocketStream;
     use futures::stream::{SplitSink, SplitStream};
     use futures::{SinkExt, StreamExt};
+    use tokio::net::TcpStream;
     use tokio::sync::{mpsc, watch};
+    use tokio_tungstenite::tungstenite::protocol::Message;
+    use tokio_tungstenite::WebSocketStream;
     use tokio_tungstenite::{accept_async, tungstenite::Error};
 
     async fn ws_sender_f(
@@ -318,7 +314,7 @@ mod wserver {
             let mut val = map_receiver.borrow_and_update().clone();
             val.0 = peer_id;
             let json = serde_json::to_string(&val).expect("json serialization");
-            if let Err(_) = sink.send(Message::text(json)).await {
+            if (sink.send(Message::text(json)).await).is_err() {
                 break;
             }
         }
@@ -329,23 +325,13 @@ mod wserver {
         mut stream: SplitStream<WebSocketStream<TcpStream>>,
         action_sender: mpsc::Sender<ShipAction>,
     ) {
-        loop {
-            if let Some(msg) = stream.next().await {
-                if let Ok(msg) = msg {
-                    if let Message::Text(text) = msg {
-                        if let Ok(action) = serde_json::from_str::<Action>(&text) {
-                            if let Err(_) =
-                                action_sender.send(ShipAction::new(peer_id, action)).await
-                            {
-                                break;
-                            }
-                        }
+        while let Some(Ok(msg)) = stream.next().await {
+            if let Message::Text(text) = msg {
+                if let Ok(action) = serde_json::from_str::<Action>(&text) {
+                    if (action_sender.send(ShipAction::new(peer_id, action)).await).is_err() {
+                        break;
                     }
-                } else {
-                    break;
                 }
-            } else {
-                break;
             }
         }
     }
@@ -370,9 +356,9 @@ mod wserver {
     }
 }
 
-use wserver::accept_connection;
 use game::{run, ShipAction};
 use state::State;
+use wserver::accept_connection;
 
 #[tokio::main]
 async fn main() {
