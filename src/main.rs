@@ -165,7 +165,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             }
             b.x = ((b.x + b.v * b.angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32;
             b.y = ((b.y + b.v * b.angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32;
-            new_map[b.y as usize][b.x as usize] = -(*b_id as i32);
+            new_map[b.y.round() as usize][b.x.round() as usize] = -(*b_id as i32);
             b.ttl -= tick_rate;
             true
         });
@@ -187,16 +187,18 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                 }
                 (s.x, s.y)
             };
-            match new_map[ny as usize][nx as usize] {
+            let rnx = nx.round() as usize;
+            let rny = ny.round() as usize;
+            match new_map[rny][rnx] {
                 c if c > 0 => {
                     // Collision
                 }
-                c if c == 0 => {
-                    new_map[ny as usize][nx as usize] = *ship_id as i32;
+                c if c == 0 => { // Nothing
+                    new_map[rny][rnx] = *ship_id as i32;
                     s.x = nx;
                     s.y = ny;
                 }
-                bid => {
+                bid => { // Bullet
                     let bullet = bullets.get_mut(&(bid.abs() as usize)).expect("Bullet on map");
                     let bullet_hp = bullet.hp;
                     bullet.hp -= s.hp;
