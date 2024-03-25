@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use rand::{thread_rng, Rng};
 use ahash::RandomState;
 
-const PI: f32 = 3.14159265358979323846;
+const PI: f32 = 3.141_592_7;
 const MAP_SIZE: usize = 20;
 const MAP_SIZE_F32: f32 = MAP_SIZE as f32;
 
@@ -71,7 +71,7 @@ impl ShipAction {
 impl Bullet {
     fn new(ship_id: usize, ship: &Ship, angle: f32) -> Bullet {
         Bullet {
-            ship_id: ship_id,
+            ship_id,
             x: ((ship.x + 1.0 * angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32,
             y: ((ship.y + 1.0 * angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32,
             angle,
@@ -87,7 +87,7 @@ impl Ship {
         Ship {
             x,
             y,
-            angle: angle,
+            angle,
             current_angle: angle,
             shape: 0,
             turn_rate: 0.5,
@@ -209,7 +209,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                     s.y = ny;
                 }
                 bid => { // Bullet
-                    let bullet = bullets.get_mut(&(bid.abs() as usize)).expect("Bullet on map");
+                    let bullet = bullets.get_mut(&(bid.unsigned_abs() as usize)).expect("Bullet on map");
                     let bullet_hp = bullet.hp;
                     bullet.hp -= s.hp;
                     s.hp -= bullet_hp;
@@ -220,9 +220,9 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
         });
         for DamageFeedRecord (damager, damaged, remain_hp) in damage_feed.iter() {
             if *remain_hp <= 0.0 {
-                if let Some(damaged) = ships.get(&damaged) {
+                if let Some(damaged) = ships.get(damaged) {
                     let enchance = Enchance::new(damaged);
-                    if let Some(damager) = ships.get_mut(&damager) {
+                    if let Some(damager) = ships.get_mut(damager) {
                         damager.apply_enchance(enchance);
                     }
                 }
@@ -240,7 +240,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                     let ShipAction { ship_id: id, action } = action;
                     match action {
                         Action::MoveShip {angle} => {
-                            ships.entry(id as usize).and_modify(|sh| {
+                            ships.entry(id).and_modify(|sh| {
                                 sh.angle = angle;
                             }).or_insert_with(|| {
                                 let mut rng = thread_rng();
@@ -255,7 +255,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                             });
                         }
                         Action::AddBullet {angle} => {
-                            if let Some(ship) = ships.get(&(id as usize)) {
+                            if let Some(ship) = ships.get(&{ id }) {
                                 bullets.insert(bullet_id, Bullet::new(id, ship, angle));
                                 bullet_id += 1;
                             }
