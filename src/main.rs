@@ -171,7 +171,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             }
             b.x = ((b.x + b.v * b.angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32;
             b.y = ((b.y + b.v * b.angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32;
-            new_map[b.y.round() as usize][b.x.round() as usize] = -(*b_id as i32);
+            new_map[b.y.round() as usize % MAP_SIZE][b.x.round() as usize % MAP_SIZE] = -(*b_id as i32);
             b.ttl -= tick_rate;
             true
         });
@@ -195,8 +195,8 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                 }
                 (s.x, s.y)
             };
-            let rnx = nx.round() as usize;
-            let rny = ny.round() as usize;
+            let rnx = nx.round() as usize % MAP_SIZE;
+            let rny = ny.round() as usize % MAP_SIZE;
             match new_map[rny][rnx] {
                 c if c > 0 => {
                     // Collision

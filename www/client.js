@@ -84,7 +84,7 @@ function renderState(id, ships, bullets, map) {
     const font_size = 20;
     ctx.font = `${font_size}px`;
     Object.entries(current_ship).forEach((value, key, data) => { 
-      ctx.fillText(`${value}`, canvas.width, key * font_size);
+      ctx.fillText(`${value}`, canvas.width, font_size + key * font_size);
     });
     ship_x = current_ship["x"];
     ship_y = current_ship["y"];
@@ -96,7 +96,7 @@ ws.onmessage = (message) => {
   const state = JSON.parse(message.data);
   console.log(state)
   // Update your game state based on the received State object (ships, bullets, map)
-  var [id, ships, bullets, map, killfeed] = state;
+  var [id, ships, bullets, map, dmgfeed] = state;
   ships = new Map(Object.entries(ships));
   bullets = new Map(Object.entries(bullets));
 
