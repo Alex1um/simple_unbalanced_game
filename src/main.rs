@@ -1,19 +1,16 @@
+use ahash::RandomState;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
-use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
-use std::net::SocketAddr;
-use tokio_tungstenite::{
-    accept_async,
-    tungstenite::Error,
-};
-use std::collections::HashMap;
-use rand::{thread_rng, Rng};
-use ahash::RandomState;
+use tokio_tungstenite::{accept_async, tungstenite::Error};
 
 const PI: f32 = 3.141_592_7;
 const MAP_SIZE: usize = 20;
@@ -50,8 +47,8 @@ struct Ship {
 // {"AddBullet":{"id":0,"angle":0.0}}
 #[derive(Deserialize, Debug)]
 enum Action {
-    MoveShip {angle: f32 },
-    AddBullet {angle: f32 },
+    MoveShip { angle: f32 },
+    AddBullet { angle: f32 },
 }
 
 struct ShipAction {
@@ -61,10 +58,7 @@ struct ShipAction {
 
 impl ShipAction {
     fn new(ship_id: usize, action: Action) -> ShipAction {
-        ShipAction {
-            ship_id,
-            action,
-        }
+        ShipAction { ship_id, action }
     }
 }
 
@@ -137,12 +131,11 @@ impl Enchance {
     }
 }
 
-
 #[derive(Serialize, Clone)]
-struct DamageFeedRecord (
+struct DamageFeedRecord(
     /* damager_id:*/ usize,
     /* damaged_id:*/ usize,
-    /* remain_hp: */f32,
+    /* remain_hp: */ f32,
 );
 
 type DamageFeed = Vec<DamageFeedRecord>;
@@ -151,9 +144,14 @@ type Map<T, const N: usize> = [[T; N]; N];
 
 type CurrentMap = Map<i32, MAP_SIZE>;
 
-
 #[derive(Serialize, Clone, Default)]
-struct State(usize, HashMap<usize, Ship, RandomState>, HashMap<usize, Bullet, RandomState>, CurrentMap, DamageFeed);
+struct State(
+    usize,
+    HashMap<usize, Ship, RandomState>,
+    HashMap<usize, Bullet, RandomState>,
+    CurrentMap,
+    DamageFeed,
+);
 
 async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch::Sender<State>) {
     let mut ships = HashMap::<usize, Ship, RandomState>::default();
@@ -169,7 +167,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
         let mut new_map = CurrentMap::default();
         bullets.retain(|b_id, b| {
             if b.ttl <= 0.0 || b.hp <= 0.0 {
-                return false
+                return false;
             }
             b.x = ((b.x + b.v * b.angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32;
             b.y = ((b.y + b.v * b.angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32;
@@ -177,7 +175,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             b.ttl -= tick_rate;
             true
         });
-        ships.retain(|ship_id,  s| {
+        ships.retain(|ship_id, s| {
             if s.hp <= 0.0 {
                 return false;
             }
@@ -203,13 +201,17 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                 c if c > 0 => {
                     // Collision
                 }
-                c if c == 0 => { // Nothing
+                c if c == 0 => {
+                    // Nothing
                     new_map[rny][rnx] = *ship_id as i32;
                     s.x = nx;
                     s.y = ny;
                 }
-                bid => { // Bullet
-                    let bullet = bullets.get_mut(&(bid.unsigned_abs() as usize)).expect("Bullet on map");
+                bid => {
+                    // Bullet
+                    let bullet = bullets
+                        .get_mut(&(bid.unsigned_abs() as usize))
+                        .expect("Bullet on map");
                     let bullet_hp = bullet.hp;
                     bullet.hp -= s.hp;
                     s.hp -= bullet_hp;
@@ -218,7 +220,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             }
             true
         });
-        for DamageFeedRecord (damager, damaged, remain_hp) in damage_feed.iter() {
+        for DamageFeedRecord(damager, damaged, remain_hp) in damage_feed.iter() {
             if *remain_hp <= 0.0 {
                 if let Some(damaged) = ships.get(damaged) {
                     let enchance = Enchance::new(damaged);
@@ -230,31 +232,35 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
         }
         loop {
             match action_receiver.try_recv() {
-                Err(e) => {
-                    match e {
-                        TryRecvError::Empty => { break }
-                        TryRecvError::Disconnected => { break 'main }
-                    }
-                }
+                Err(e) => match e {
+                    TryRecvError::Empty => break,
+                    TryRecvError::Disconnected => break 'main,
+                },
                 Ok(action) => {
-                    let ShipAction { ship_id: id, action } = action;
+                    let ShipAction {
+                        ship_id: id,
+                        action,
+                    } = action;
                     match action {
-                        Action::MoveShip {angle} => {
-                            ships.entry(id).and_modify(|sh| {
-                                sh.angle = angle;
-                            }).or_insert_with(|| {
-                                let mut rng = thread_rng();
-                                let angle = rng.gen_range(0.0..2.0 * PI);
-                                let mut sx = rng.gen_range(0..MAP_SIZE);
-                                let mut sy = rng.gen_range(0..MAP_SIZE);
-                                while new_map[sy][sx] != 0 {
-                                    sx = rng.gen_range(0..MAP_SIZE);
-                                    sy = rng.gen_range(0..MAP_SIZE);
-                                }
-                                Ship::new(sx as f32, sy as f32, angle)
-                            });
+                        Action::MoveShip { angle } => {
+                            ships
+                                .entry(id)
+                                .and_modify(|sh| {
+                                    sh.angle = angle;
+                                })
+                                .or_insert_with(|| {
+                                    let mut rng = thread_rng();
+                                    let angle = rng.gen_range(0.0..2.0 * PI);
+                                    let mut sx = rng.gen_range(0..MAP_SIZE);
+                                    let mut sy = rng.gen_range(0..MAP_SIZE);
+                                    while new_map[sy][sx] != 0 {
+                                        sx = rng.gen_range(0..MAP_SIZE);
+                                        sy = rng.gen_range(0..MAP_SIZE);
+                                    }
+                                    Ship::new(sx as f32, sy as f32, angle)
+                                });
                         }
-                        Action::AddBullet {angle} => {
+                        Action::AddBullet { angle } => {
                             if let Some(ship) = ships.get(&{ id }) {
                                 bullets.insert(bullet_id, Bullet::new(id, ship, angle));
                                 bullet_id += 1;
@@ -263,37 +269,52 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                     }
                 }
             }
-
         }
-        map_sender.send(State(0, ships.clone(), bullets.clone(), new_map, damage_feed.clone())).expect("map send");
+        map_sender
+            .send(State(
+                0,
+                ships.clone(),
+                bullets.clone(),
+                new_map,
+                damage_feed.clone(),
+            ))
+            .expect("map send");
         tokio::time::sleep(tick_rate_dur - start_time.elapsed()).await;
     }
 }
 
-async fn ws_sender_f(peer_id: usize, mut sink: SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>, mut map_receiver: watch::Receiver<State>) {
+async fn ws_sender_f(
+    peer_id: usize,
+    mut sink: SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>,
+    mut map_receiver: watch::Receiver<State>,
+) {
     while map_receiver.changed().await.is_ok() {
         let mut val = map_receiver.borrow_and_update().clone();
         val.0 = peer_id;
         let json = serde_json::to_string(&val).expect("json serialization");
         if let Err(_) = sink.send(Message::text(json)).await {
-            break
+            break;
         }
     }
 }
 
-async fn ws_receiver_f(peer_id: usize, mut stream: SplitStream<WebSocketStream<TcpStream>>, action_sender: mpsc::Sender<ShipAction>) {
+async fn ws_receiver_f(
+    peer_id: usize,
+    mut stream: SplitStream<WebSocketStream<TcpStream>>,
+    action_sender: mpsc::Sender<ShipAction>,
+) {
     loop {
         if let Some(msg) = stream.next().await {
             if let Ok(msg) = msg {
                 if let Message::Text(text) = msg {
                     if let Ok(action) = serde_json::from_str::<Action>(&text) {
                         if let Err(_) = action_sender.send(ShipAction::new(peer_id, action)).await {
-                            break
+                            break;
                         }
                     }
                 }
             } else {
-                break
+                break;
             }
         } else {
             break;
@@ -301,20 +322,22 @@ async fn ws_receiver_f(peer_id: usize, mut stream: SplitStream<WebSocketStream<T
     }
 }
 
-async fn accept_connection(stream: TcpStream, peer_id: usize, action_sender: mpsc::Sender<ShipAction>, map_receiver: watch::Receiver<State>) {
+async fn accept_connection(
+    stream: TcpStream,
+    peer_id: usize,
+    action_sender: mpsc::Sender<ShipAction>,
+    map_receiver: watch::Receiver<State>,
+) {
     match accept_async(stream).await {
         Ok(ws_stream) => {
             let (ws_sender, ws_receiver) = ws_stream.split();
             tokio::spawn(ws_receiver_f(peer_id, ws_receiver, action_sender));
             tokio::spawn(ws_sender_f(peer_id, ws_sender, map_receiver));
         }
-        Err(e) => {
-            match e {
-                Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
-                err => eprintln!("Error processing connection: {}", err),
-            }
-
-        }
+        Err(e) => match e {
+            Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
+            err => eprintln!("Error processing connection: {}", err),
+        },
     }
 }
 
@@ -336,7 +359,12 @@ async fn main() {
     while let Ok((stream, _)) = listener.accept().await {
         if let Ok(addr) = stream.peer_addr() {
             println!("New connection: {id} - {addr}");
-            tokio::spawn(accept_connection(stream, id, action_sender.clone(), map_receiver.clone()));
+            tokio::spawn(accept_connection(
+                stream,
+                id,
+                action_sender.clone(),
+                map_receiver.clone(),
+            ));
             id += 1;
         }
     }
