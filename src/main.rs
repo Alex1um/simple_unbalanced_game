@@ -112,7 +112,6 @@ impl Ship {
 }
 
 struct Enchance {
-    ship_id: usize,
     turn_rate: f32,
     v: f32,
     repair_rate: f32,
@@ -123,10 +122,9 @@ struct Enchance {
 }
 
 impl Enchance {
-    fn new(ship_id: usize, ship: &Ship) -> Enchance {
+    fn new(ship: &Ship) -> Enchance {
         let mut rng = thread_rng();
         Enchance {
-            ship_id,
             turn_rate: ship.turn_rate * rng.gen::<f32>(),
             v: ship.v * rng.gen::<f32>(),
             repair_rate: ship.repair_rate * rng.gen::<f32>(),
@@ -149,15 +147,14 @@ struct State(usize, HashMap<usize, Ship>, HashMap<usize, Bullet>, CurrentMap, Ve
 async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch::Sender<State>) {
     let mut ships = HashMap::<usize, Ship>::new();
     let mut bullets = HashMap::<usize, Bullet>::new();
-    let mut enchances = Vec::<Enchance>::new();
-    let mut kill_feed = Vec::<(usize, usize)>::new();
+    let mut damage_feed = Vec::<(usize, usize, f32)>::new();
     // > 0 - ship id; < 0 - bullet
     let tick_rate = 0.1;
     let tick_rate_dur = tokio::time::Duration::from_secs_f32(tick_rate);
     let mut bullet_id = 0usize;
     'main: loop {
         let start_time = tokio::time::Instant::now();
-        kill_feed.clear();
+        damage_feed.clear();
         let mut new_map = CurrentMap::default();
         bullets.retain(|b_id, b| {
             if b.ttl <= 0.0 || b.hp <= 0.0 {
@@ -170,10 +167,12 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             true
         });
         ships.retain(|ship_id,  s| {
+            if s.hp <= 0.0 {
+                return false;
+            }
             if s.hp < s.max_hp {
                 s.hp += s.repair_rate;
             }
-            
             let (nx, ny) = if s.current_angle == s.angle {
                 let nx = ((s.x + s.v * s.angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32;
                 let ny = ((s.y + s.v * s.angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32;
@@ -203,18 +202,18 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
                     let bullet_hp = bullet.hp;
                     bullet.hp -= s.hp;
                     s.hp -= bullet_hp;
-                    if s.hp <= 0.0 {
-                        enchances.push(Enchance::new(bullet.ship_id, s));
-                        kill_feed.push((bullet.ship_id, *ship_id));
-                        return false;
-                    }
+                    damage_feed.push((bullet.ship_id, *ship_id, s.hp));
                 }
             }
             true
         });
-        for enchance in enchances.drain(..) {
-            if let Some(ship) = ships.get_mut(&enchance.ship_id) {
-                ship.apply_enchance(enchance);
+        for (damager, damaged, remain_hp) in damage_feed.iter() {
+            if *remain_hp <= 0.0 {
+                if let Some(damager) = ships.get_mut(&damager) {
+                    if let Some(damaged) = ships.get_mut(&damaged) {
+                        damager.apply_enchance(Enchance::new(damaged));
+                    }
+                }
             }
         }
         loop {
@@ -254,7 +253,7 @@ async fn run(mut action_receiver: mpsc::Receiver<ShipAction>, map_sender: watch:
             }
 
         }
-        map_sender.send(State(0, ships.clone(), bullets.clone(), new_map, kill_feed.clone())).expect("map send");
+        map_sender.send(State(0, ships.clone(), bullets.clone(), new_map, damage_feed.clone())).expect("map send");
         tokio::time::sleep(tick_rate_dur - start_time.elapsed()).await;
     }
 }
