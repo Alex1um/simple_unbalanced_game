@@ -47,8 +47,8 @@ async def play(address: str):
                         await websocket.send(json.dumps({"MoveShip": {"angle": angle}}))
                     if frame % ATTACK_RATE == 0 and math.dist((self_ship["x"], self_ship["y"]), (target_x, target_y)) < 7:
                         target_dirrection = target_ship["angle"]
-                        target_x += math.cos(target_dirrection) * 2
-                        target_y += math.sin(target_dirrection) * 2
+                        target_x += math.cos(target_dirrection) * 3
+                        target_y += math.sin(target_dirrection) * 3
                         angle = math.atan2(target_y - self_ship["y"], target_x - self_ship["x"])    
                         await websocket.send(json.dumps({"AddBullet": {"angle": angle}}))
                 else:

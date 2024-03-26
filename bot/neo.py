@@ -7,7 +7,7 @@ import sys
 import math
 
 TURN_RATE = 10
-SCAN_RANGE = 3
+SCAN_RANGE = 4
 
 async def play(address: str):
     async with connect(address) as websocket:
