@@ -4,9 +4,20 @@ import signal
 import json
 import math
 import random
+import sys
 
 TURN_RATE = 60
 ATTACK_RATE = 10
+
+def choose_target_and_rel_pos(self_id, ships: dict[str, dict]):
+    if len(ships) > 1:
+        ids = random.sample(tuple(ships.keys()), 2)
+        target_id = ids[0] if ids[0] != self_id else ids[1]
+        relative_x = random.randint(-3, 3)
+        relative_y = random.randint(-3, 3)
+        return target_id, relative_x, relative_y
+    return None, 0, 0
+
 
 async def play(address: str):
     async with connect(address) as websocket:
@@ -24,9 +35,8 @@ async def play(address: str):
                 id, ships, bullets, map, killfeed = json.loads(data)
                 id = str(id)
                 self_ship = ships.get(id, None)
-                if self_ship is None:
-                    relative_x = random.randint(-3, 3)
-                    relative_y = random.randint(-3, 3)
+                if self_ship is None: # dead or not in game
+                    target_id, relative_x, relative_y = choose_target_and_rel_pos(id, ships)
                     await websocket.send(json.dumps({"MoveShip": {"angle": 0.0}}))
                     continue
                 if target_id in ships:
@@ -42,14 +52,16 @@ async def play(address: str):
                         angle = math.atan2(target_y - self_ship["y"], target_x - self_ship["x"])    
                         await websocket.send(json.dumps({"AddBullet": {"angle": angle}}))
                 else:
-                    if len(ships) > 1:
-                        ids = random.sample(tuple(ships.keys()), 2)
-                        target_id = ids[0] if ids[0] != id else ids[1]
-                        relative_x = random.randint(-3, 3)
-                        relative_y = random.randint(-3, 3)
+                    target_id, relative_x, relative_y = choose_target_and_rel_pos(id, ships)
         finally:
             await websocket.close()
 
+async def multiple_play(count: int):
+    await asyncio.gather(*(play("ws://localhost:48666") for _ in range(count)))
+
 if __name__ == "__main__":
-    asyncio.run(play("ws://localhost:48666"))
+    count = 1
+    if len(sys.argv) > 1:
+        count = int(sys.argv[1])
+    asyncio.run(multiple_play(count))
     
