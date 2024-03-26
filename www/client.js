@@ -7,6 +7,7 @@ var ship_x = 0;
 var ship_y = 0;
 var dest_x = 0;
 var dest_y = 0;
+var start_time = performance.now();
 
 ws.onopen = () => {
   console.log("Connected to server!");
@@ -49,8 +50,13 @@ ws.onopen = () => {
 
 function renderState(id, ships, bullets, map) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  
+
+    ctx.textAlign = "start"
+    ctx.fillStyle = "white";
+    let time = (performance.now() - start_time) / 1000;
+    start_time = performance.now();
+    ctx.fillText(`${(1 / time).toFixed(0)}`, 10, 10);
+
     // Render ships and bullets
     ships.forEach((value, key, map) => {
       const centerX = value.x * cellSize + cellSize / 2;
@@ -109,8 +115,7 @@ function renderState(id, ships, bullets, map) {
   }
 ws.onmessage = (message) => {
   const state = JSON.parse(message.data);
-  console.log(state)
-  // Update your game state based on the received State object (ships, bullets, map)
+  // console.log(state)
   var [id, ships, bullets, map, dmgfeed] = state;
   ships = new Map(Object.entries(ships));
   bullets = new Map(Object.entries(bullets));
