@@ -34,7 +34,7 @@ mod game {
     use rand::{thread_rng, Rng};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
-    use std::f32::consts::PI;
+    use std::f32::consts::TAU;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::{mpsc, watch};
 
@@ -247,7 +247,7 @@ mod game {
                                     })
                                     .or_insert_with(|| {
                                         let mut rng = thread_rng();
-                                        let angle = rng.gen_range(0.0..2.0 * PI);
+                                        let angle = rng.gen_range(0.0..TAU);
                                         let mut sx = rng.gen_range(0..MAP_SIZE);
                                         let mut sy = rng.gen_range(0..MAP_SIZE);
                                         while new_map[sy][sx] != 0 {
