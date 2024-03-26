@@ -28,13 +28,11 @@ async def play(address: str):
                 if frame % TURN_RATE == 0:
                     observation = np.array(map)
                     x, y = round(self_ship["x"]) % observation.shape[1], round(self_ship["y"]) % observation.shape[0]
-                    ids = observation[np.ix_(np.arange(y - SCAN_RANGE, y + SCAN_RANGE + 1, 1) % observation.shape[0], np.arange(x - SCAN_RANGE, x + SCAN_RANGE + 1, 1) % observation.shape[1])].flatten()
-                    bullets = tuple(bullets[str(-bid)] for bid in ids[ids < 0])
-                    if bullets:
-                        bullet_coords = np.array(tuple((bullet["x"], bullet["y"]) for bullet in bullets))
-                        bullets_x, bullets_y = bullet_coords[:, 0], bullet_coords[:, 1]
-                        dx = -bullets_x + self_ship["x"]
-                        dy = -bullets_y + self_ship["y"]
+                    ids = observation[np.ix_(np.arange(y - SCAN_RANGE, y + SCAN_RANGE + 1, 1) % observation.shape[0], np.arange(x - SCAN_RANGE, x + SCAN_RANGE + 1, 1) % observation.shape[1])]
+                    bullets_x, bullets_y = np.where(ids < 0)
+                    if bullets_x.size > 0:
+                        dx = -bullets_x + SCAN_RANGE
+                        dy = -bullets_y + SCAN_RANGE
                         angle = np.arctan2(dy, dx)
                         await websocket.send(json.dumps({"MoveShip": {"angle": angle.mean()}}))
                     # angle = None
