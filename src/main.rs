@@ -112,7 +112,7 @@ mod game {
                 max_hp: 100.0,
                 hp: 100.0,
                 bullet_ttl: 1.0,
-                bullet_speed: 0.02,
+                bullet_speed: 0.0,
                 bullet_hp: 10.0,
             }
         }
@@ -165,10 +165,10 @@ mod game {
         let mut bullets = HashMap::<usize, Bullet, RandomState>::default();
         let mut damage_feed = DamageFeed::new();
         // > 0 - ship id; < 0 - bullet
-        let tick_rate_dur = tokio::time::Duration::from_secs_f32(TICK_RATE);
         let mut bullet_id = 0usize;
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs_f32(TICK_RATE));
         'main: loop {
-            let start_time = tokio::time::Instant::now();
+            interval.tick().await;
             damage_feed.clear();
             let mut new_map = CurrentMap::default();
             bullets.retain(|b_id, b| {
@@ -216,6 +216,9 @@ mod game {
                     }
                     bid => {
                         // Bullet
+                        new_map[rny][rnx] = *ship_id as i32;
+                        s.x = nx;
+                        s.y = ny;
                         let bullet = bullets
                             .get_mut(&(bid.unsigned_abs() as usize))
                             .expect("Bullet on map");
@@ -288,7 +291,6 @@ mod game {
                     damage_feed.clone(),
                 ))
                 .expect("map send");
-            tokio::time::sleep(tick_rate_dur - start_time.elapsed()).await;
         }
     }
 }
