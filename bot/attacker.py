@@ -6,15 +6,19 @@ import math
 import random
 import sys
 
-TURN_RATE = 60
-ATTACK_RATE = 10
+TURN_RATE = 30
+ATTACK_RATE = 20
+MIN_RANGE = 2
+MAX_RANGE = 5
+SPREAD = 0.1
+AHEAD = 0
 
 def choose_target_and_rel_pos(self_id, ships: dict[str, dict]):
     if len(ships) > 1:
         ids = random.sample(tuple(ships.keys()), 2)
         target_id = ids[0] if ids[0] != self_id else ids[1]
-        relative_x = random.randint(-3, 3)
-        relative_y = random.randint(-3, 3)
+        relative_x = random.randint(MIN_RANGE, MAX_RANGE) * (1 if random.random() > 0.5 else -1)
+        relative_y = random.randint(MIN_RANGE, MAX_RANGE) * (1 if random.random() > 0.5 else -1)
         return target_id, relative_x, relative_y
     return None, 0, 0
 
@@ -32,7 +36,7 @@ async def play(address: str):
             target_id = None
             async for data in websocket:
                 frame += 1
-                id, ships, bullets, map, killfeed = json.loads(data)
+                id, ships, bullets, id_map, type_map, killfeed = json.loads(data)
                 id = str(id)
                 self_ship = ships.get(id, None)
                 if self_ship is None: # dead or not in game
@@ -47,9 +51,10 @@ async def play(address: str):
                         await websocket.send(json.dumps({"MoveShip": {"angle": angle}}))
                     if frame % ATTACK_RATE == 0 and math.dist((self_ship["x"], self_ship["y"]), (target_x, target_y)) < 7:
                         target_dirrection = target_ship["angle"]
-                        target_x += math.cos(target_dirrection) * 3
-                        target_y += math.sin(target_dirrection) * 3
+                        target_x += math.cos(target_dirrection) * AHEAD
+                        target_y += math.sin(target_dirrection) * AHEAD
                         angle = math.atan2(target_y - self_ship["y"], target_x - self_ship["x"])    
+                        angle += random.uniform(-SPREAD, SPREAD)
                         await websocket.send(json.dumps({"AddBullet": {"angle": angle}}))
                 else:
                     target_id, relative_x, relative_y = choose_target_and_rel_pos(id, ships)
