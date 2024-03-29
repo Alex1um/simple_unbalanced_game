@@ -116,11 +116,11 @@ function renderState(id, ships, bullets, map) {
 ws.onmessage = (message) => {
   const state = JSON.parse(message.data);
   // console.log(state)
-  var [id, ships, bullets, map, dmgfeed] = state;
+  var [id, ships, bullets, id_map, type_map, dmgfeed] = state;
   ships = new Map(Object.entries(ships));
   bullets = new Map(Object.entries(bullets));
 
-  renderState(id, ships, bullets, map);
+  renderState(id, ships, bullets, id_map);
 
 };
 

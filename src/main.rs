@@ -5,9 +5,10 @@ use tokio::sync::{mpsc, watch};
 const MAP_SIZE: usize = 20;
 const MAP_SIZE_F32: f32 = MAP_SIZE as f32;
 const TICK_RATE: f32 = 1.0 / 60.0;
+const MAX_UPGRADES: usize = 10;
 
 mod state {
-    use super::game::{Bullet, CurrentMap, Ship};
+    use super::game::{Bullet, CurrentIDMap, CurrentTypeMap, Ship};
     use ahash::RandomState;
     use serde::Serialize;
     use std::collections::HashMap;
@@ -22,17 +23,21 @@ mod state {
         pub usize,
         pub HashMap<usize, Ship, RandomState>,
         pub HashMap<usize, Bullet, RandomState>,
-        pub CurrentMap,
+        pub CurrentIDMap,
+        pub CurrentTypeMap,
         pub DamageFeed,
     );
 }
 
 mod game {
+    use crate::MAX_UPGRADES;
+
     use super::state::{DamageFeed, DamageFeedRecord, State};
     use super::{MAP_SIZE, MAP_SIZE_F32, TICK_RATE};
     use ahash::RandomState;
     use rand::{thread_rng, Rng};
     use serde::{Deserialize, Serialize};
+    use serde_repr::Serialize_repr;
     use std::collections::HashMap;
     use std::f32::consts::TAU;
     use tokio::sync::mpsc::error::TryRecvError;
@@ -112,7 +117,7 @@ mod game {
                 max_hp: 100.0,
                 hp: 100.0,
                 bullet_ttl: 1.0,
-                bullet_speed: 0.0,
+                bullet_speed: 0.02,
                 bullet_hp: 10.0,
             }
         }
@@ -151,11 +156,41 @@ mod game {
                 bullet_hp: ship.bullet_hp * rng.gen::<f32>(),
             }
         }
+
+        fn random() -> Enchance {
+            let mut rng = thread_rng();
+            Enchance {
+                turn_rate: rng.gen::<f32>() * 0.3,
+                v: rng.gen::<f32>() * 0.2,
+                repair_rate: rng.gen::<f32>(),
+                max_hp: rng.gen::<f32>() * 20.0,
+                bullet_ttl: rng.gen::<f32>() * 0.3,
+                bullet_speed: rng.gen::<f32>() * 0.3,
+                bullet_hp: rng.gen::<f32>(),
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Serialize_repr, PartialEq)]
+    #[repr(i8)]
+    pub enum ObjectType {
+        None = 0,
+        Ship = 1,
+        Bullet = -1,
+        Upgrade = 2,
+    }
+
+    impl Default for ObjectType {
+        fn default() -> Self {
+            ObjectType::None
+        }
     }
 
     type Map<T, const N: usize> = [[T; N]; N];
 
-    pub type CurrentMap = Map<i32, MAP_SIZE>;
+    pub type CurrentIDMap = Map<usize, MAP_SIZE>;
+    
+    pub type CurrentTypeMap = Map<ObjectType, MAP_SIZE>;
 
     pub async fn run(
         mut action_receiver: mpsc::Receiver<ShipAction>,
@@ -163,6 +198,7 @@ mod game {
     ) {
         let mut ships = HashMap::<usize, Ship, RandomState>::default();
         let mut bullets = HashMap::<usize, Bullet, RandomState>::default();
+        let mut upgrades = HashMap::<usize, Enchance, RandomState>::default();
         let mut damage_feed = DamageFeed::new();
         // > 0 - ship id; < 0 - bullet
         let mut bullet_id = 0usize;
@@ -170,15 +206,18 @@ mod game {
         'main: loop {
             interval.tick().await;
             damage_feed.clear();
-            let mut new_map = CurrentMap::default();
+            let mut new_id_map = CurrentIDMap::default();
+            let mut new_type_map = CurrentTypeMap::default();
             bullets.retain(|b_id, b| {
                 if b.ttl <= 0.0 || b.hp <= 0.0 {
                     return false;
                 }
                 b.x = ((b.x + b.v * b.angle.cos()) + MAP_SIZE_F32) % MAP_SIZE_F32;
                 b.y = ((b.y + b.v * b.angle.sin()) + MAP_SIZE_F32) % MAP_SIZE_F32;
-                new_map[b.y.round() as usize % MAP_SIZE][b.x.round() as usize % MAP_SIZE] =
-                    -(*b_id as i32);
+                let cx = b.x.round() as usize % MAP_SIZE;
+                let cy = b.y.round() as usize % MAP_SIZE;
+                new_id_map[cy][cx] = *b_id;
+                new_type_map[cy][cx] = ObjectType::Bullet;
                 b.ttl -= TICK_RATE;
                 true
             });
@@ -204,23 +243,35 @@ mod game {
                 };
                 let rnx = nx.round() as usize % MAP_SIZE;
                 let rny = ny.round() as usize % MAP_SIZE;
-                match new_map[rny][rnx] {
-                    c if c > 0 => {
+                match new_type_map[rny][rnx] {
+                    ObjectType::Ship => {
                         // Collision
                     }
-                    0 => {
+                    ObjectType::None => {
                         // Nothing
-                        new_map[rny][rnx] = *ship_id as i32;
+                        new_id_map[rny][rnx] = *ship_id;
+                        new_type_map[rny][rnx] = ObjectType::Ship;
                         s.x = nx;
                         s.y = ny;
                     }
-                    bid => {
+                    ObjectType::Upgrade => {
+                        new_id_map[rny][rnx] = *ship_id;
+                        new_type_map[rny][rnx] = ObjectType::Ship;
+                        s.x = nx;
+                        s.y = ny;
+                        if let Some(upgrade) = upgrades.remove(&{ *ship_id }) {
+                            s.apply_enchance(upgrade);
+                        }
+                    }
+                    ObjectType::Bullet => {
                         // Bullet
-                        new_map[rny][rnx] = *ship_id as i32;
+                        let bid = new_id_map[rny][rnx];
+                        new_id_map[rny][rnx] = *ship_id;
+                        new_type_map[rny][rnx] = ObjectType::Ship;
                         s.x = nx;
                         s.y = ny;
                         let bullet = bullets
-                            .get_mut(&(bid.unsigned_abs() as usize))
+                            .get_mut(&(bid))
                             .expect("Bullet on map");
                         let bullet_hp = bullet.hp;
                         bullet.hp -= s.hp;
@@ -230,7 +281,7 @@ mod game {
                 }
                 true
             });
-            loop {
+            loop { // receive actions
                 match action_receiver.try_recv() {
                     Err(e) => match e {
                         TryRecvError::Empty => break,
@@ -253,7 +304,7 @@ mod game {
                                         let angle = rng.gen_range(0.0..TAU);
                                         let mut sx = rng.gen_range(0..MAP_SIZE);
                                         let mut sy = rng.gen_range(0..MAP_SIZE);
-                                        while new_map[sy][sx] != 0 {
+                                        while new_type_map[sy][sx] != ObjectType::None {
                                             sx = rng.gen_range(0..MAP_SIZE);
                                             sy = rng.gen_range(0..MAP_SIZE);
                                         }
@@ -282,12 +333,25 @@ mod game {
                     }
                 }
             }
+            // respawn upgrades. BUG: map overflow
+            // for _ in 0..(MAX_UPGRADES - current_updates_count) {
+            //     let mut rng = thread_rng();
+            //     let mut sx = rng.gen_range(0..MAP_SIZE);
+            //     let mut sy = rng.gen_range(0..MAP_SIZE);
+            //     while new_type_map[sy][sx] != ObjectType::None {
+            //         sx = rng.gen_range(0..MAP_SIZE);
+            //         sy = rng.gen_range(0..MAP_SIZE);
+            //     }
+            //     new_type_map[sy][sx] = ObjectType::Upgrade;
+            //     current_updates_count += 1;
+            // }
             map_sender
                 .send(State(
                     0,
                     ships.clone(),
                     bullets.clone(),
-                    new_map,
+                    new_id_map,
+                    new_type_map,
                     damage_feed.clone(),
                 ))
                 .expect("map send");
