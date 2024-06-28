@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
 
 const MAP_SIZE: usize = 20;
@@ -42,8 +40,9 @@ mod game {
     use std::f32::consts::TAU;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::{mpsc, watch};
+    use mlua::prelude::*;
 
-    #[derive(Clone, Serialize)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct Bullet {
         ship_id: usize,
         x: f32,
@@ -54,7 +53,7 @@ mod game {
         hp: f32,
     }
 
-    #[derive(Clone, Serialize)]
+    #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct Ship {
         x: f32,
         y: f32,
@@ -196,6 +195,9 @@ mod game {
         mut action_receiver: mpsc::Receiver<ShipAction>,
         map_sender: watch::Sender<State>,
     ) {
+        let lua = Lua::new();
+        let globals = lua.globals();
+        let script = lua.load(include_str!("scripts/main.lua")).into_function().unwrap();
         let mut ships = HashMap::<usize, Ship, RandomState>::default();
         let mut bullets = HashMap::<usize, Bullet, RandomState>::default();
         let mut upgrades = HashMap::<usize, Enchance, RandomState>::default();
@@ -208,6 +210,13 @@ mod game {
             damage_feed.clear();
             let mut new_id_map = CurrentIDMap::default();
             let mut new_type_map = CurrentTypeMap::default();
+            
+            globals.set("ships", lua.to_value(&ships).unwrap()).unwrap();
+            globals.set("bullets", lua.to_value(&bullets).unwrap()).unwrap();
+            script.call::<_, ()>(()).unwrap();
+            ships = lua.from_value(globals.get("ships").unwrap()).unwrap();
+            bullets = lua.from_value(globals.get("bullets").unwrap()).unwrap();
+
             bullets.retain(|b_id, b| {
                 if b.ttl <= 0.0 || b.hp <= 0.0 {
                     return false;
@@ -333,6 +342,7 @@ mod game {
                     }
                 }
             }
+
             // respawn upgrades. BUG: map overflow
             // for _ in 0..(MAX_UPGRADES - current_updates_count) {
             //     let mut rng = thread_rng();
@@ -370,6 +380,8 @@ mod wserver {
     use tokio_tungstenite::tungstenite::protocol::Message;
     use tokio_tungstenite::WebSocketStream;
     use tokio_tungstenite::{accept_async, tungstenite::Error};
+    use std::net::SocketAddr;
+    use tokio::net::TcpListener;
 
     async fn ws_sender_f(
         peer_id: usize,
@@ -402,7 +414,7 @@ mod wserver {
         }
     }
 
-    pub async fn accept_connection(
+    async fn accept_connection(
         stream: TcpStream,
         peer_id: usize,
         action_sender: mpsc::Sender<ShipAction>,
@@ -420,37 +432,40 @@ mod wserver {
             },
         }
     }
+
+    pub async fn start_server(action_sender: mpsc::Sender<ShipAction>, map_receiver: watch::Receiver<State>) {
+        let ws_addr = SocketAddr::from(([0, 0, 0, 0], 48666));
+        let listener = TcpListener::bind(ws_addr).await.expect("Failed to bind");
+        println!("Listening on: {}", ws_addr);
+
+        let mut id = 1usize;
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(addr) = stream.peer_addr() {
+                println!("New connection: {id} - {addr}");
+                tokio::spawn(accept_connection(
+                    stream,
+                    id,
+                    action_sender.clone(),
+                    map_receiver.clone(),
+                ));
+                id += 1;
+            }
+        }
+    }
 }
 
 use game::{run, ShipAction};
 use state::State;
-use wserver::accept_connection;
+use wserver::start_server;
 
 #[tokio::main]
 async fn main() {
     let (action_sender, action_receiver) = mpsc::channel::<ShipAction>(32);
     let (map_sender, map_receiver) = watch::channel::<State>(State::default());
     // let (map_sender, mut map_receiver) = watch::channel::<State>(State(vec![], vec![], [[0i8; 20]; 20]));
-    let ws_addr = SocketAddr::from(([0, 0, 0, 0], 48666));
-    let listener = TcpListener::bind(ws_addr).await.expect("Failed to bind");
-
-    println!("Listening on: {}", ws_addr);
 
     tokio::spawn(async move {
-        run(action_receiver, map_sender).await;
+        start_server(action_sender, map_receiver).await
     });
-
-    let mut id = 1usize;
-    while let Ok((stream, _)) = listener.accept().await {
-        if let Ok(addr) = stream.peer_addr() {
-            println!("New connection: {id} - {addr}");
-            tokio::spawn(accept_connection(
-                stream,
-                id,
-                action_sender.clone(),
-                map_receiver.clone(),
-            ));
-            id += 1;
-        }
-    }
+    run(action_receiver, map_sender).await;
 }

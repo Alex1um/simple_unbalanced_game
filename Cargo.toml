@@ -15,3 +15,4 @@ tokio-tungstenite = "*"
 anyhow = "1.0.81"
 rand = "0.8.5"
 ahash = { version = "0.8.11", features = ["std", "serde"] }
+mlua = { version = "0.9.9", features = ["vendored", "luajit", "serialize"] }

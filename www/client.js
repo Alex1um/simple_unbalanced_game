@@ -1,4 +1,4 @@
-const ws = new WebSocket(`ws://25.20.226.178:48666`); // Replace with your server address
+const ws = new WebSocket(`ws://localhost:48666`); // Replace with your server address
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
